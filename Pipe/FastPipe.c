@@ -195,7 +195,7 @@ struct FastPipeBaseMessage* PeekFastPipeMessage(struct FastPipe* pipe)
 
     if (unlikely(length <= pipe->threshold))
     {
-      // Allways push stub when only one message is in the queue
+      // Always push stub when only few messages are in the queue
       message = AllocateFastPipeMessage(pipe, 0);
       SubmitFastPipeMessage(message);
     }
