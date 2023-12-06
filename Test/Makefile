@@ -1,4 +1,5 @@
-ARCHITECTURE ?= $(shell $(CC) -dumpmachine | grep -o -E '^[^-]+')
+ARCHITECTURE    ?= $(shell $(CC) -dumpmachine | grep -o -E '^[^-]+')
+PKG_CONFIG_PATH  = /usr/lib/$(ARCHITECTURE)-linux-gnu/pkgconfig/:/usr/lib/pkgconfig:/usr/share/pkgconfig
 
 EXECUTABLE   := test
 DIRECTORIES  := ../Pipe
