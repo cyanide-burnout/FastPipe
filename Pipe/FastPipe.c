@@ -71,11 +71,10 @@ void ReleaseFastPipe(struct FastPipe* pipe)
     // Release messages in pool
 
     next = atomic_load_explicit(&pipe->pool, memory_order_acquire);
-    next = REMOVE_ABA_TAG(struct FastPipeBaseMessage, next, ALIGNMENT);
 
-    while (current = next)
+    while (current = REMOVE_ABA_TAG(struct FastPipeBaseMessage, next, ALIGNMENT))
     {
-      next = REMOVE_ABA_TAG(struct FastPipeBaseMessage, current->next, ALIGNMENT);
+      next = current->next;
       free(current);
     }
 
