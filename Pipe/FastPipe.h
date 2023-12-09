@@ -27,42 +27,53 @@ extern "C"
 #define CAST_FASTPIPE_MESSAGE(type, message)  ((type*)message->data)
 
 struct FastPipe;
-struct FastPipeBaseMessage;
+struct FastPipeMessage;
+struct FastPipeSharedPool;
 
 typedef void (*ActivateFastPipeConsumerFunction)(struct FastPipe* pipe);
 
-struct FastPipeBaseMessage
+struct FastPipeMessage
 {
-  ATOMIC(struct FastPipeBaseMessage*) next;   // Next message in the queue or pool
+  ATOMIC(struct FastPipeMessage*) next;       // Next message in the queue or pool
+  struct FastPipeSharedPool* pool;            // Pool, the message belongs to
   ATOMIC(uint32_t) tag;                       // ABA tag counter
-  struct FastPipe* pipe;                      // Pipe, the message belongs to
   size_t size;                                // Size of allocation
   size_t length;                              // Size of user data (0 indicates stub message)
   uint8_t data[0];                            // User data
 };
 
-struct FastPipe
+struct FastPipeSharedPool
 {
-  ATOMIC(struct FastPipeBaseMessage*) head;   // Queue head
-  ATOMIC(struct FastPipeBaseMessage*) tail;   // Queue tail
-  ATOMIC(struct FastPipeBaseMessage*) pool;   // Pool of free messages
-  ATOMIC(intptr_t) length;                    // Enqueued messages count (except stubs)
+  ATOMIC(struct FastPipeMessage*) stack;      // Stacked storage
   ATOMIC(size_t) count;                       // Reference counter
   uint32_t granularity;                       // Granularity of allocation
+};
+
+struct FastPipe
+{
+  ATOMIC(struct FastPipeMessage*) head;       // Queue head
+  ATOMIC(struct FastPipeMessage*) tail;       // Queue tail
+  struct FastPipeSharedPool* pool;            // Pool used for stub messages
+  ATOMIC(intptr_t) length;                    // Enqueued messages count (except stubs)
+  ATOMIC(size_t) count;                       // Reference counter
   uint32_t threshold;                         // Amount of messages to avoid consumer activation or stubs adding
   ActivateFastPipeConsumerFunction activate;  // Activation function (or NULL)
   void* closure;                              // User closure
 };
 
-struct FastPipe* CreateFastPipe(uint32_t granularity, uint32_t threshold, ActivateFastPipeConsumerFunction activate, void* closure);
+struct FastPipeSharedPool* CreateFastPipeSharedPool(uint32_t granularity);
+struct FastPipeSharedPool* HoldFastPipeSharedPool(struct FastPipeSharedPool* pool);
+void ReleaseFastPipeSharedPool(struct FastPipeSharedPool* pool);
+
+struct FastPipeMessage* AllocateFastPipeMessage(struct FastPipeSharedPool* pool, size_t length);
+void ReleaseFastPipeMessage(struct FastPipeMessage* message);
+
+struct FastPipe* CreateFastPipe(struct FastPipeSharedPool* pool, uint32_t threshold, ActivateFastPipeConsumerFunction activate, void* closure);
 struct FastPipe* HoldFastPipe(struct FastPipe* pipe);
 void ReleaseFastPipe(struct FastPipe* pipe);
 
-struct FastPipeBaseMessage* AllocateFastPipeMessage(struct FastPipe* pipe, size_t length);
-void ReleaseFastPipeMessage(struct FastPipeBaseMessage* message);
-
-void SubmitFastPipeMessage(struct FastPipeBaseMessage* message);
-struct FastPipeBaseMessage* PeekFastPipeMessage(struct FastPipe* pipe);
+void SubmitFastPipeMessage(struct FastPipe* pipe, struct FastPipeMessage* message);
+struct FastPipeMessage* PeekFastPipeMessage(struct FastPipe* pipe);
 
 intptr_t GetFastPipeMessageCount(struct FastPipe* pipe);
 

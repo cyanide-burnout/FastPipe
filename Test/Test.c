@@ -13,6 +13,7 @@ struct Context
   int handle;
   atomic_int run;
   struct FastPipe* pipe;
+  struct FastPipeSharedPool* pool;
 };
 
 void activate(struct FastPipe* pipe)
@@ -32,7 +33,7 @@ void* consumer(void* argument)
   pthread_t self;
   struct pollfd event;
   struct Context* context;
-  struct FastPipeBaseMessage* message;
+  struct FastPipeMessage* message;
 
   self    = pthread_self();
   context = (struct Context*)argument;
@@ -41,6 +42,7 @@ void* consumer(void* argument)
   event.events  = POLLIN;
   event.revents = 0;
 
+  HoldFastPipeSharedPool(context->pool);
   HoldFastPipe(context->pipe);
 
   while (atomic_load_explicit(&context->run, memory_order_relaxed))
@@ -61,6 +63,7 @@ void* consumer(void* argument)
     }
   }
 
+  ReleaseFastPipeSharedPool(context->pool);
   ReleaseFastPipe(context->pipe);
   return NULL;
 }
@@ -70,25 +73,31 @@ void* producer(void* argument)
   uint64_t value;
   pthread_t self;
   struct Context* context;
-  struct FastPipeBaseMessage* message;
+  struct FastPipeMessage* message;
 
   self    = pthread_self();
   context = (struct Context*)argument;
   value   = 0ULL;
 
+  HoldFastPipeSharedPool(context->pool);
   HoldFastPipe(context->pipe);
 
   while (atomic_load_explicit(&context->run, memory_order_relaxed))
   {
-    if (message = AllocateFastPipeMessage(context->pipe, 128))
+    if (message = AllocateFastPipeMessage(context->pool, 128))
     {
       message->length = snprintf(message->data, 127, "producer %x - number %llu", (int)self, ++ value);
-      SubmitFastPipeMessage(message);
+      SubmitFastPipeMessage(context->pipe, message);
     }
 
-    usleep(2);
+    if (GetFastPipeMessageCount(context->pipe) > 120000)
+    {
+      // Only to avoid out of memory in demo :)
+      usleep(1);
+    }
   }
 
+  ReleaseFastPipeSharedPool(context->pool);
   ReleaseFastPipe(context->pipe);
   return NULL;
 }
@@ -97,12 +106,13 @@ int main(int count, char** const arguments)
 {
   pthread_t workers[4];
   struct Context context;
-  struct FastPipeBaseMessage* message;
+  struct FastPipeMessage* message;
 
   atomic_init(&context.run, 1);
 
   context.handle = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-  context.pipe   = CreateFastPipe(128, 2, activate, &context);
+  context.pool   = CreateFastPipeSharedPool(128);
+  context.pipe   = CreateFastPipe(context.pool, 2, activate, &context);
 
   pthread_create(workers + 0, NULL, consumer, &context);
   pthread_create(workers + 1, NULL, consumer, &context);
@@ -125,6 +135,7 @@ int main(int count, char** const arguments)
     ReleaseFastPipeMessage(message);
   }
 
+  ReleaseFastPipeSharedPool(context.pool);
   ReleaseFastPipe(context.pipe);
   close(context.handle);
 
